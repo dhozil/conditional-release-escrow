@@ -9,7 +9,7 @@
 ![Status](https://img.shields.io/badge/status-live%20on%20studionet-2ea44f)
 ![Tests](https://img.shields.io/badge/tests-8%20passed-2ea44f)
 
-[Live Contract](https://explorer-studio.genlayer.com/address/0xECc3b64b23b70990c5E495A54679F91E3b571A7b) 
+[Live Contract](https://explorer-studio.genlayer.com/address/0x1F25Fd52468091e5a3b410669Ae33867634739F8) 
 
 [GenLayer Docs](https://docs.genlayer.com)
 
@@ -35,8 +35,8 @@ and on failure the depositor is made whole via an escrow refund.
 
 | | |
 |---|---|
-| **Contract** | [ConditionalReleaseEscrow](https://explorer-studio.genlayer.com/address/0xECc3b64b23b70990c5E495A54679F91E3b571A7b) |
-| **Address** | `0xECc3b64b23b70990c5E495A54679F91E3b571A7b` |
+| **Contract** | [ConditionalReleaseEscrow](https://explorer-studio.genlayer.com/address/0x1F25Fd52468091e5a3b410669Ae33867634739F8) |
+| **Address** | `0x1F25Fd52468091e5a3b410669Ae33867634739F8` |
 | **Network** | GenLayer studionet (chain `61999`) |
 | **Status** | Deployed + verified on-chain |
 
@@ -44,7 +44,7 @@ and on failure the depositor is made whole via an escrow refund.
 
 - **Explicit condition + acquired evidence (staff fix)**: every escrow stores a `condition_text` (the real condition to verify) and an `evidence_url` hash-bound as `sha256(url|condition_text)`; the judge does NOT see only a label — the contract fetches the evidence URL itself (`gl.nondet.web.get`) and feeds the *fetched content* to the LLM, and each validator independently re-fetches the same URL
 - **Conditional release**: escrow releases to the recipient when the explicit condition is satisfied, either by deterministic time gate or by LLM-consensus judgment (score >= 50)
-- **Bounded windows**: release window enforced with deterministic time gates; refund allowed while open (judgment denied or time not reached)
+- **Bounded windows**: release window enforced with deterministic time gates; refunds are allowed only after an **explicit recorded denial** (LLM) or **expiry** (time), and funds stay locked through the agreed decision window
 - **AI judgment**: LLM consensus scoring with exact-agreement semantics (`SCORE_TOLERANCE = 5`), unreachable evidence -> deterministic deny
 
 ## How It Works
@@ -53,10 +53,16 @@ and on failure the depositor is made whole via an escrow refund.
 create_escrow (payable; condition = llm|time, condition_text, evidence_url)
       |
       v
-release_escrow (time gate -> release; llm: fetch evidence on-chain -> consensus score >= 50 -> release; else revert "Escrow condition not satisfied")
+release_escrow
+  - time: after deadline -> release
+  - llm: fetch evidence on-chain -> consensus score
+      - score >= 50: release
+      - score <  50: record explicit denial on-chain (no revert), remains open
       |
       v
-refund_escrow (while open: llm denied or time not reached -> refund depositor)
+refund_escrow (depositor only)
+  - time: after expiry/deadline
+  - llm:  after explicit recorded denial
 ```
 
 ## Methods
@@ -64,18 +70,18 @@ refund_escrow (while open: llm denied or time not reached -> refund depositor)
 | Role | Method | Guard |
 |---|---|---|
 | Depositor | `create_escrow` | payable; funding == amount; depositor == sender; explicit condition + evidence URL (llm); bounded inputs; unique id |
-| Any | `release_escrow` | status open; time gate or LLM consensus on fetched evidence |
-| Any | `refund_escrow` | status open; llm denied or time not reached |
+| Any | `release_escrow` | status open; time gate or LLM consensus on fetched evidence; denial explicitly recorded |
+| Depositor | `refund_escrow` | status open; depositor only; time expiry or explicit recorded LLM denial |
 | Any | `get_escrow`, `get_all_escrows` | read-only |
 
 ## Security Model
 
-- **Caller binding**: only the depositor (`depositor == sender`) can create; strangers cannot create escrows in someone else's name (addresses validated as `0x` + 40 hex; depositor ≠ recipient)
+- **Caller binding**: only the depositor (`depositor == sender`) can create; only the depositor can refund (addresses validated as `0x` + 40 hex; depositor ≠ recipient)
 - Escrow funding invariant: actual payable value must equal the recorded amount at creation
-- **Evidence binding (staff fix)**: condition text + evidence URL are stored at creation and hash-bound; the judge evaluates only contract-fetched evidence (unreachable → deterministic deny, score 0); each validator independently re-fetches
-- LLM judgment unreachable / disapproved -> deterministic deny; release is permissionless and retryable
-- Refunds keep the depositor whole; release pays the recipient atomically
-- `reasoning` is descriptive-only: it is stored as an audit note and never reused in any later consequential computation
+- **Evidence binding**: condition text + evidence URL are stored at creation and hash-bound; the judge evaluates only contract-fetched evidence (unreachable → deterministic deny, score 0); each validator independently re-fetches
+- **Refund lifecycle (steward fix)**: funds stay locked through the agreed decision window. Time escrows are refundable only after expiry (`release_deadline`); LLM escrows are refundable only after an **explicit recorded denial** (judgment outcome stored on-chain). Premature and unauthorized refunds revert
+- LLM denial is explicitly recorded (score/reasoning/denied flag) so refund eligibility is auditable and deterministic; release is permissionless and retryable
+- `reasoning` is descriptive-only: stored as an audit note and never reused in consequential computation
 
 ## Test
 
@@ -92,4 +98,4 @@ genvm-lint check contracts/conditional_release_escrow.py
 ## Live Deployment
 
 Deployed on GenLayer studionet (chain `61999`):
-[`0xECc3b64b23b70990c5E495A54679F91E3b571A7b`](https://explorer-studio.genlayer.com/address/0xECc3b64b23b70990c5E495A54679F91E3b571A7b)
+[`0x1F25Fd52468091e5a3b410669Ae33867634739F8`](https://explorer-studio.genlayer.com/address/0x1F25Fd52468091e5a3b410669Ae33867634739F8)
